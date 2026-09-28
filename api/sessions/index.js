@@ -1,6 +1,7 @@
 const { redis, sessionKey, SESSION_TTL_SECONDS } = require("../_redis");
 const { withCors, handlePreflight } = require("../_cors");
 const { generateSessionCode } = require("../_code");
+const auth = require("../_auth");
 
 module.exports = async function handler(req, res) {
   if (handlePreflight(req, res)) return;
@@ -13,7 +14,10 @@ module.exports = async function handler(req, res) {
 
   try {
     const body = req.body || {};
-    const { type, pricePerSecond, pricePerMeter, baseFare, currency, driverId } = body;
+    const { type, pricePerSecond, pricePerMeter, baseFare, currency } = body;
+    // Signed-in drivers are identified by their token; older app versions still send a local id.
+    const authedDriver = await auth.getAuthedDriver(req);
+    const driverId = authedDriver ? authedDriver.id : body.driverId;
 
     if (!type || !pricePerSecond || !pricePerMeter || !driverId) {
       res.status(400).json({ success: false, error: "missing-fields" });
@@ -46,6 +50,19 @@ module.exports = async function handler(req, res) {
     };
 
     await redis.set(sessionKey(code), JSON.stringify(session), { ex: SESSION_TTL_SECONDS });
+
+    // Usage counters (numbers only, no ride details are kept).
+    const kind = type === "trip" ? "trip" : "waiting";
+    const dayKey = auth.keys.dayStats(auth.todayKey());
+    await redis.hincrby(dayKey, "total", 1);
+    await redis.hincrby(dayKey, kind, 1);
+    await redis.expire(dayKey, 60 * 60 * 24 * 400);
+    if (authedDriver) {
+      const driverKey = auth.keys.driver(authedDriver.id);
+      await redis.hincrby(driverKey, "sessionsTotal", 1);
+      await redis.hincrby(driverKey, kind === "trip" ? "tripCount" : "waitingCount", 1);
+      await redis.hset(driverKey, { lastActiveAt: Date.now() });
+    }
 
     res.status(200).json({ success: true, code });
   } catch (error) {
