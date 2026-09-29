@@ -38,8 +38,16 @@ module.exports = async function handler(req, res) {
       JSON.stringify({ hash: auth.sha256(`${email}:${code}`), attempts: 0 }),
       { ex: auth.OTP_TTL_SECONDS },
     );
+    try {
+      await sendCodeEmail(email, code, purpose);
+    } catch (mailError) {
+      // Don't count a failed send against the driver's limits.
+      console.error("request-code: email failed", mailError?.code, mailError?.response || mailError?.message);
+      await redis.del(auth.keys.otp(email));
+      await redis.decr(auth.keys.otpHourly(email));
+      return res.status(502).json({ success: false, error: "email-failed" });
+    }
     await redis.set(auth.keys.otpCooldown(email), 1, { ex: 60 });
-    await sendCodeEmail(email, code, purpose);
 
     res.status(200).json({ success: true });
   } catch (error) {
