@@ -33,8 +33,31 @@ function codeEmail(code, purpose) {
   return { subject, text, html };
 }
 
+// Resend (https://resend.com) is used when RESEND_API_KEY is set; otherwise Gmail.
+async function sendWithResend(to, subject, text, html) {
+  const from = process.env.MAIL_FROM || "XtraDrive <onboarding@resend.dev>";
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from, to: [to], subject, text, html }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    const error = new Error(`Resend ${response.status}: ${detail}`);
+    error.code = `RESEND_${response.status}`;
+    throw error;
+  }
+}
+
 async function sendCodeEmail(to, code, purpose) {
   const { subject, text, html } = codeEmail(code, purpose);
+  if (process.env.RESEND_API_KEY) {
+    await sendWithResend(to, subject, text, html);
+    return;
+  }
   await getTransporter().sendMail({
     from: `"XtraDrive" <${process.env.GMAIL_USER}>`,
     to,
