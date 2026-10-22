@@ -21,6 +21,7 @@ const keys = {
   allDrivers: "drivers:all",
   deletions: "deletions",
   pricing: "config:pricing",
+  features: "config:features",
   dayStats: (day) => `stats:day:${day}`,
 };
 
