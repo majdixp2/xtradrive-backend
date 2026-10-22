@@ -5,6 +5,7 @@ const auth = require("./_auth");
 // so a brand-new feature stays hidden until the admin turns it on.
 const FEATURE_DEFAULTS = {
   destinationMode: false,
+  rideHailing: false,
 };
 
 async function readFeatures() {
@@ -17,4 +18,14 @@ async function readFeatures() {
   return out;
 }
 
-module.exports = { FEATURE_DEFAULTS, readFeatures };
+async function writeFeatures(changes) {
+  const current = await readFeatures();
+  for (const key of Object.keys(changes)) {
+    if (!(key in FEATURE_DEFAULTS) || typeof changes[key] !== "boolean") throw new Error("invalid-features");
+    current[key] = changes[key];
+  }
+  await redis.set(auth.keys.features, JSON.stringify(current));
+  return current;
+}
+
+module.exports = { FEATURE_DEFAULTS, readFeatures, writeFeatures };
